@@ -6,10 +6,14 @@ NUCLEOTIDES = ['A', 'T', 'C', 'G']
 STATES = ['I', 'S', 'M', 'P']
 
 class Parser:
-    def __init__(self, file_name):
-        self.file_name = file_name
+    def __init__(self, annotation_file, sequence_file):
+        self.annotation_file = annotation_file
+        self.sequence_file = sequence_file
         self.gene_stock = {}
+
         self.file_parser()
+        self.sequence_loading()
+
         self.intergenic_nucleotide_freq = None
         self.gene_codon_freq = None
         self.start_codons_cnt = None
@@ -29,20 +33,21 @@ class Parser:
                 # print(gs.gene_len)
 
     def file_parser(self):
-        print(self.file_name)
-        with open(self.file_name, 'r') as w:
+
+        with open(self.annotation_file, 'r') as w:
             cnt = 0
             for l in w:
                 # init buckets
-                if l.startswith("##sequence-region  "):
+                if l.startswith("##sequence-region"):
+                    # print(l.strip("##sequence-region").rstrip().split('\t'))
                     gene_name = \
-                        l.strip("##sequence-region  ").strip('\n').split(' ')[0]
+                        l.strip("##sequence-region").rstrip().split(' ')[3]
+                    # print(gene_name)
                     gs = GeneStock()
                     gs.gene_name = gene_name
                     self.gene_stock[gene_name] = gs
                     gs.seq_len = int(
-                        l.strip("##sequence-region  ").strip('\n').split(' ')[
-                            2])
+                        l.strip("##sequence-region").rstrip().split(' ')[5])
                     continue
 
                 # genetic region
@@ -71,7 +76,6 @@ class Parser:
                         if len(crt_gene_stock.gene_loc) > 0 \
                                 and gene_starts < crt_gene_stock.gene_loc[-1][
                             1]:
-                            # print("\n\n",gene_starts, crt_gene_stock.loc[-1][1])
                             cnt += 1
                         crt_gene_stock.gene_loc.append(loc)
                         crt_gene_stock.gene_count += 1
@@ -84,8 +88,8 @@ class Parser:
 
         # print("number of overlapping gene regions: ", cnt)
 
-    def sequence_loading(self, fasta_file):
-        with open(fasta_file, 'r') as f:
+    def sequence_loading(self):
+        with open(self.sequence_file, 'r') as f:
             gene_name = None
             gene_seq = ""
             for l in f:
@@ -96,6 +100,7 @@ class Parser:
                                 and self.gene_stock[gene_name].seq is not None:
                             self.gene_stock[gene_name].seq_len = len(gene_seq)
                     gene_name = l.strip('\n').strip('>').split(" ")[0]
+
                     gene_seq = ""
                     continue
                 else:
@@ -103,9 +108,11 @@ class Parser:
             # last seqeuence in gene_seq needs to get into the bucket!
 
             self.gene_stock[gene_name].seq = gene_seq
+
             if self.gene_stock[gene_name].seq_len == 0 \
                     and self.gene_stock[gene_name].seq is not None:
                 self.gene_stock[gene_name].seq_len = len(gene_seq)
+
 
     def cal_len(self):
         gene_len = 0

@@ -1,6 +1,7 @@
 import math
 
 from gene_stock import GeneStock
+import os
 
 NUCLEOTIDES = ['A', 'T', 'C', 'G']
 STATES = ['I', 'S', 'M', 'P']
@@ -19,7 +20,6 @@ class Cell:
         self.coor = None  # (State, Emission)
         self.value = None  # store the log value of the prob
         self.pointer = None  # previous cell
-        self.end_codon = False
 
     def __str__(self):
         output_msg = "coor: {}\nvalue: {}\npointer: {}\n".format(self.coor,
@@ -46,6 +46,8 @@ class HMM:
 
     def sequence_loading(self, fasta_file):
         with open(fasta_file, 'r') as f:
+            print("Start reading fasta file for prediction sequence loading... \n"
+                  "file name: {}".format(os.path.split(fasta_file)[-1]))
             gene_name = None
             gene_seq = ""
             i = 0
@@ -53,53 +55,24 @@ class HMM:
                 if l.startswith(">"):
                     if gene_name is not None:
                         self.input_gene_stock[gene_name] = GeneStock()
+                        self.input_gene_stock[gene_name].name = gene_name
                         self.input_gene_stock[gene_name].seq = gene_seq
                         i += 1
                     gene_name = l.strip('\n').strip('>').split(" ")[0]
                     gene_seq = ""
+
                     continue
                 else:
                     gene_seq += l.strip('\n')
             # last seqeuence in gene_seq needs to get into the bucket!
             self.input_gene_stock[gene_name] = GeneStock()
             self.input_gene_stock[gene_name].seq = gene_seq
+            self.input_gene_stock[gene_name].name = gene_name
+            i += 1
+        print("\n{} sequences loaded for prediction.. ".format(i))
 
     def build_transition_prob(self):
-        # for s0 in STATES:
-        #     for s1 in STATES:
-        #         prob = 0
-        #         if s0 == 'I':
-        #             if s1 == 'I':
-        #                 prob = 1 - 1 / self.parser.intergenic_len
-        #             elif s1 == 'S':
-        #                 prob = 1 / self.parser.intergenic_len
-        #             else:
-        #                 prob = 0
-        #         elif s0 == 'S':
-        #             if s1 == 'S':
-        #                 prob = 2/3
-        #             elif s1 == 'M':
-        #                 prob = 1/3
-        #             else:
-        #                 prob = 0
-        #         elif s0 == 'M':
-        #             if s1 == 'M':
-        #                 prob = 1 - 1 / self.parser.gene_len
-        #             elif s1 == 'P':
-        #                 prob = 1 / self.parser.gene_len
-        #             else:
-        #                 prob = 0
-        #         elif s0 == 'P':
-        #             if s1 == 'I':
-        #                 prob = 1/3
-        #             elif s1 == 'P':
-        #                 prob = 2/3
-        #             else:
-        #                 prob = 0
-        #         else:
-        #             raise ValueError("unknown state")
-        #
-        #         self.transition_prob[(s0, s1)] = prob
+
         for s0 in STATES:
             for s1 in STATES:
                 prob = 0
@@ -142,29 +115,6 @@ class HMM:
         :param observation: choice A T C G
         :return:
         """
-        # for s in STATES:
-        #     for n in NUCLEOTIDES:
-        #         prob = 0
-        #         if s == 'I':
-        #             prob = self.parser.intergenic_nucleotide_freq[n]
-        #         elif s == 'S':
-        #             freq = self.codon_freq_to_true_freq(
-        #                 self.parser.start_codons_cnt
-        #             )
-        #             prob = freq[n]
-        #
-        #         elif s == 'M':
-        #             prob = self.parser.gene_nucleotide_freq[n]
-        #
-        #         elif s == 'P':
-        #             freq = self.codon_freq_to_true_freq(
-        #                 self.parser.stop_codons_cnt
-        #             )
-        #             prob = freq[n]
-        #
-        #         else:
-        #             raise ValueError("Unknown key! Got {}".format(s))
-        #         self.emission_prob[(s, n)] = prob
 
         s = 'I'
         for n in NUCLEOTIDES:
@@ -172,28 +122,26 @@ class HMM:
             self.emission_prob[(s, n)] = prob
 
         s = 'S'
-        print(len(self.parser.start_codons_freq))
         assert len(self.parser.start_codons_freq) == 64
         for codon in self.parser.start_codons_freq.keys():
             prob = self.parser.start_codons_freq[codon]
             self.emission_prob[(s, codon)] = prob
 
         s = 'M'
-        print(len(self.parser.gene_codon_freq))
+        assert len(self.parser.gene_codon_freq) == 64
         for codon in self.parser.gene_codon_freq.keys():
             prob = self.parser.gene_codon_freq[codon]
             self.emission_prob[(s, codon)] = prob
 
         s = 'P'
-        print(len(self.parser.stop_codons_freq))
+        assert len(self.parser.stop_codons_freq) == 64
         for codon in self.parser.stop_codons_freq.keys():
             prob = self.parser.stop_codons_freq[codon]
             self.emission_prob[(s, codon)] = prob
 
-        print(len(self.emission_prob))  # 196
+        assert len(self.emission_prob) == 196 # 196
 
     def viterbi(self, seq_name):
-
         table = [
             [Cell() for _ in range(len(self.input_gene_stock[seq_name].seq))]
             for _ in range(len(self.states))]
@@ -220,11 +168,11 @@ class HMM:
                     # first codon emission prob
                     _sid = self.states['I']
                     score_from_I = table[_sid][i - 1].value + \
-                                self.get_transition_prob('I',this_state)
+                                   self.get_transition_prob('I', this_state)
 
                     _sid = self.states['P']
                     score_from_P = table[_sid][i - 3].value + \
-                                self.get_transition_prob('P', this_state)
+                                   self.get_transition_prob('P', this_state)
 
                     if score_from_P > score_from_I:
                         prev_coor = (self.states['P'], i - 3)
@@ -236,7 +184,7 @@ class HMM:
                 elif this_state == 'S':
                     _sid = self.states['I']
                     score_from_I = table[_sid][i - 1].value + \
-                                    self.get_transition_prob('I', this_state)
+                                   self.get_transition_prob('I', this_state)
 
                     prev_coor = (self.states['I'], i - 1)
                     max_value = score_from_I
@@ -244,11 +192,11 @@ class HMM:
                 elif this_state == 'M':
                     _sid = self.states['S']
                     score_from_S = table[_sid][i - 3].value + \
-                                    self.get_transition_prob('S', this_state)
+                                   self.get_transition_prob('S', this_state)
 
                     _sid = self.states['M']
                     score_from_M = table[_sid][i - 3].value + \
-                                    self.get_transition_prob('M', this_state)
+                                   self.get_transition_prob('M', this_state)
 
                     if score_from_S > score_from_M:
                         prev_coor = (self.states['S'], i - 3)
@@ -259,23 +207,11 @@ class HMM:
 
                 elif this_state == 'P':
                     _sid = self.states['M']
-                    score_from_M = table[_sid][i - 3].value +\
-                                    self.get_transition_prob('M', this_state)
+                    score_from_M = table[_sid][i - 3].value + \
+                                   self.get_transition_prob('M', this_state)
 
                     prev_coor = (self.states['M'], i - 3)
                     max_value = score_from_M
-
-
-                    # for _s, _sid in self.states.items():
-                    #     # get the max previous state in the table
-                    #
-                    #     end_codon = True
-                    #     if table[_sid][i - 1].value + \
-                    #             self.get_transition_prob(_s,
-                    #                                      this_state) >= max_value:
-                    #         prev_coor = (_sid, i - 1)
-                    #         max_value = table[_sid][i - 1].value
-
 
             # first 3 columns
             else:
@@ -306,16 +242,24 @@ class HMM:
             max_coor = (None, None)
             cur_cell = None
             out_seq = []
+            # get the largest value
             for _s, _sid in self.states.items():
                 if table[_sid][len(seq) - 1].value > max_value:
                     max_coor = (_s, len(seq) - 1)
                     max_value = table[_sid][len(seq) - 1].value
                     cur_cell = table[_sid][len(seq) - 1]
-            # print(max_coor)
+
             assert cur_cell is not None
 
             while cur_cell.pointer is not None:
-                out_seq.append(cur_cell.coor[0])
+                this_state = cur_cell.coor[0]
+                if this_state != 'I':
+                    # pointing to the previous start of a codon
+                    for i in range(3):
+                        out_seq.append(this_state)
+                else:
+                    out_seq.append(this_state)
+
                 prev_cell = table[cur_cell.pointer[0]][cur_cell.pointer[1]]
                 cur_cell = prev_cell
 
@@ -324,7 +268,7 @@ class HMM:
             out_seq.reverse()
             # print(len(out_seq))
             # print(len(seq))
-            # assert len(out_seq) == len(seq)
+            assert len(out_seq) == len(seq)
             return out_seq
 
         # first column
@@ -332,41 +276,16 @@ class HMM:
             this_cell = table[sid][0]
             this_cell.coor = (s, 0)
             if s == 'I':
-                this_cell.value = self.get_initial_prob(s) + self.get_emission_prob(
+                this_cell.value = self.get_initial_prob(
+                    s) + self.get_emission_prob(
                     s, seq[0])
             else:
                 this_cell.value = -math.inf
-            this_cell.end_codon = True
-
 
         # filling the table column by column
         for obs_idx in range(1, len(seq)):
             for s, sid in self.states.items():
-                # print(s)
-                #                 this_cell = table[sid][obs_idx]
-                # this_cell.coor = (s, obs_idx)
-                # this_cell.pointer, prev_max, this_cell.end_codon = \
-                #     get_previous_cell(obs_idx, s)
-                # if s == 'I':
-                #
-                #     this_cell.value = prev_max + self.get_emission_prob(s,seq[obs_idx])
-                # elif s != 'I' :
-                #     if this_cell.end_codon:
-                #     # reading the frame
-                #         codon = "".join(seq[obs_idx:obs_idx + 3])
-                #         if len(codon) < 3:
-                #             this_cell.pointer, prev_max, this_cell.end_codon = \
-                #                 get_previous_cell(obs_idx, s)
-                #             this_cell.value = prev_max - math.inf
-                #         else:
-                #             this_cell.pointer, prev_max, this_cell.end_codon = \
-                #                 get_previous_cell(obs_idx, s)
-                #             this_cell.value = prev_max + self.get_emission_prob(s,codon)
-                #
-                #     else:
-                #         this_cell.value = prev_max
-                #         this_cell.pointer = (sid, obs_idx - 1)
-                #         if get_previous_cell()
+
                 this_cell = table[sid][obs_idx]
                 this_cell.coor = (s, obs_idx)
 
@@ -376,39 +295,32 @@ class HMM:
                         obs_idx])
                     this_cell.pointer = prev_max_pointer
                 else:
-                    # codon = "".join(seq[obs_idx:obs_idx + 3])
-                    # if len(codon) < 3:
-                    #     this_cell.pointer, prev_max, this_cell.end_codon = \
-                    #         get_previous_cell(obs_idx, s)
-                    #     this_cell.value = prev_max - math.inf
-                    #     continue
-                    # if this_cell.end_codon:
-                    #
-                    #     this_cell.value = prev_max + self.get_emission_prob(s, codon)
-                    #     this_cell.pointer = prev_max_pointer
-                    #
-                    # else:
-                    #     if prev_max < table[sid][obs_idx - 1].value:
-                    #         this_cell.value = table[sid][obs_idx - 1].value
-                    #         this_cell.pointer = (sid, obs_idx - 1)
-                    #         this_cell.end_codon = True
-                    #
-                    #     else:
-                    #         this_cell.value = prev_max + self.get_emission_prob(s, codon)
-                    #         this_cell.pointer = prev_max_pointer
+                    # query emission probability from codon
                     this_cell.pointer, prev_max = get_previous_cell(obs_idx, s)
                     codon = "".join(seq[obs_idx:obs_idx + 3])
                     if len(codon) < 3:
                         this_cell.value = prev_max - math.inf
                         continue
-                    this_cell.value = prev_max + self.get_emission_prob(s,codon)
+                    this_cell.value = prev_max + self.get_emission_prob(s,
+                                                                        codon)
 
         self.input_gene_stock[seq_name].prediction = backtracking()
+        # print(self.input_gene_stock[seq_name].prediction[1460:1470])
 
-    def gen_gff_file(self, write_file):
+    def generate_gff_file(self, write_file):
+        def get_string_from_gene_loc(loc):
+            out_str = ""
+            for start, end in loc:
+                out_str += "\t".join(
+                    [gn, 'ena', 'CDS', str(start), str(end), '.', '+', '0',
+                     '.'])
+                out_str += "\n"
+            return out_str
+
         with open(write_file, 'w') as f:
             for gn, gs in self.input_gene_stock.items():
-                gs.prediction_sequence_to_loc()
+                gene_loc = gs.prediction_sequence_to_loc()
+                f.write(get_string_from_gene_loc(gene_loc))
 
     @staticmethod
     def codon_freq_to_true_freq(codon_freq):
